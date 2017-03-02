@@ -4,98 +4,119 @@
 module.exports = {
 
 	loadModules: function() {
-		// const config = require('../config/common');
-		// const axios = require('axios');
-		// const xmlParser = require('xml2js');
-		// const db = require('node-crate');
-		// const crypto = require('crypto');
-		// const fs = require('fs');
 
-		// return {
-		// 	config: config,
-		// 	axios: axios,
-		// 	xmlParser: xmlParser,
-		// 	db: db,
-		// 	crypto: crypto,
-		// 	fs: fs
-		// };
+		const fs = require('fs');
+		const csv = require('fast-csv');
+		const crypto = require('crypto');
+		const db = require('../db/crate');
+		const config = require('../config/common');
+
+		return {
+			fs: fs,
+			csv: csv,
+			db: db,
+			crypto: crypto,
+			config: config
+		};
 	},
 
-	importProjects: function(user, password) {
+	parseFile: function(file_path) {
 
-		let serviceController = this;
-		let modules = this.loadModules();
-		let crate = modules.db;
-		crate.connect('localhost', '4200');
+		const modules = this.loadModules();
+		const self = this;
 
-		return new Promise(function(resolve, reject) {
+		let records = [];
+		let errors = [];
 
-			crate.execute("SELECT site_id, site_content_url, site_name FROM sites").then(function(response) {
+		return new Promise( (resolve, reject) => {
 
-				response.rows.map( site => {
+			file_path = '/home/matejci/bookanddrive/apache-jmeter-3.1/bin/results/user_roles_test.csv';
+			let stream = modules.fs.createReadStream(file_path);
 
-					serviceController.tableauLogin(user, password, site[1]).then( site_login => {
+			stream.on('error', () => {
+				let error = `File ${file_path} doesn't exists!`;
+				errors.push(error);
+				reject(errors);
+			});
 
-						let projectsReq = {
-							method: 'GET',
-							url: `${modules.config.TABLEAU.API_URL}/sites/${site[0]}/projects`,
-							headers: {'X-Tableau-Auth': `${site_login.ttoken}`}
-						}
-
-						modules.axios.request(projectsReq).then( projectsResponse => {
-
-							let JSONResult = null;
-
-							modules.xmlParser.parseString(projectsResponse.data, {explicitArray: false}, function(err, result) {
-								JSONResult = JSON.parse(JSON.stringify(result));
-							});
-
-							let JSONprojects = JSONResult.tsResponse.projects.project;
-
-							if (!Array.isArray(JSONprojects)) {
-								let tempJSONprojects = JSONprojects;
-								JSONprojects = [];
-								JSONprojects.push(tempJSONprojects);
-							}
-
-							JSONprojects.map( project => {
-
-								let project_object = {};
-								project_object.id = modules.crypto.randomBytes(4).toString("hex");
-								project_object.site_id = site[0];
-								project_object.site_content_url = site[1];
-								project_object.site_name = site[2];
-								project_object.created_by = user;
-								project_object.created_at = new Date();
-								project_object.updated_at = new Date();
-								project_object.description = project.$.description;
-								project_object.name = project.$.name;
-								project_object.project_id = project.$.id;
-
-								crate.insert('projects', project_object).success(function(res) {});
-
-								return resolve(project_object);
-							});
-
-
-						}).catch( projectsError => {
-							console.log("CATCH serviceController::importProjects -> Axios projectsReq catch", projectsError);
-							return reject(projectsError);
-						});
-
-					}).catch( loginErr => {
-						console.log("CATCH serviceController::importProjects -> tablau login catch");
-						return reject(loginErr);
-					});
-
-				});
-
-			}).error( dbErr => {
-				return reject(dbErr);
+			modules.csv.fromStream(stream, { headers: true })
+			.on('data-invalid', (invData) => {
+				console.log("Invalid data: ", invData);
+			})
+			.on('data', (data) => {
+				records.push(data);
+			})
+			.on('end', () => {
+				console.log("Done");
+				resolve(self.parseRecords(records));
 			});
 
 		});
 
+	},
+
+	parseRecords: function(records) {
+
+		const crypto = this.loadModules().crypto;
+		const crate = this.loadModules().db;
+		let parsed_records = [];
+
+		return new Promise( (resolve, reject) => {
+
+			records.map( (rec) => {
+				let parsed_rec = {};
+				parsed_rec.uuid = crypto.randomBytes(8).toString("hex");
+				parsed_rec.test_name = rec.label;
+				parsed_rec.test_run_at = rec.timeStamp;
+				parsed_rec.elapsed = rec.elapsed;
+				parsed_rec.response_code = rec.responseCode;
+				parsed_rec.response_message = rec.responseMessage;
+				parsed_rec.thread_name = rec.threadName;
+				parsed_rec.data_type = rec.dataType;
+				parsed_rec.success = rec.success;
+				parsed_rec.failure_message = rec.failureMessage;
+				parsed_rec.bytes = rec.bytes;
+				parsed_rec.sent_bytes = rec.sentBytes;
+				parsed_rec.grp_threads = rec.grpThreads;
+				parsed_rec.all_threads = rec.allThreads;
+				parsed_rec.latency = rec.Latency;
+				parsed_rec.idle_time = rec.IdleTime;
+				parsed_rec.connect = rec.Connect;
+				parsed_rec.created_at = new Date();
+				parsed_rec.updated_at = new Date();
+
+				crate.insert('reporting.jmeter_results', parsed_rec).then(function(data) {
+					resolve(data);
+				}).catch(function(catchErr) {
+					console.log("catch", catchErr);
+					reject(catchErr);
+				});
+
+			});
+
+		});
+	},
+
+	moveFile: function(source) {
+		let destination = this.loadModules().config.ENV.LOCAL.MOVE_FILE_DESTINATION;
+
+		let source_arr = source.split('/');
+		destination += source_arr[source_arr.length-1];
+
+		console.log("destination", destination);
+
+
+		let fs = this.loadModules().fs;
+
+		return new Promise( (resolve, reject) => {
+			fs.rename(source, destination, (err) => {
+				if (err) {
+					console.log("Error while moving file: ", err);
+					reject(err);
+				}
+				resolve("File moved.");
+			})
+		});
 	}
 
 };

@@ -9,7 +9,6 @@ CREATE TABLE reporting.jmeter_results (
   test_name string,
   test_run_at timestamp,
   elapsed integer,
-  label string,
   response_code integer,
   response_message string,
   thread_name string,
