@@ -17,8 +17,6 @@ coverage
 # nyc test coverage
 .nyc_output
 
-# Grunt intermediate storage (http://gruntjs.com/creating-plugins#storing-task-files)
-.grunt
 
 # node-waf configuration
 .lock-wscript
@@ -35,3 +33,12 @@ jspm_packages
 
 # Optional REPL history
 .node_repl_history
+
+node_modules
+npm-debug.log*
+dist
+.tmp
+.idea/
+.idea_modules/
+**/.DS_Store
+project_data
